@@ -21,7 +21,7 @@
 #![allow(non_camel_case_types)]
 extern crate libc;
 
-use libc::{c_int, c_uint, c_char, c_void};
+use libc::{c_char, c_int, c_uint, c_void, wchar_t};
 
 // Public types; these are all opaque pointer types
 pub type TagLib_File = c_void;
@@ -45,8 +45,15 @@ pub const TAGLIB_FILE_ASF: TagLib_FileType = 9;
 // tag_c.h
 extern "C" {
     pub fn taglib_file_new(filename: *const c_char) -> *mut TagLib_File;
+    #[cfg(target_os = "windows")]
+    pub fn taglib_file_new_wchar(filename: *const wchar_t) -> *mut TagLib_File;
     pub fn taglib_file_new_type(
         filename: *const c_char,
+        filetype: TagLib_FileType,
+    ) -> *mut TagLib_File;
+    #[cfg(target_os = "windows")]
+     pub fn taglib_file_new_type_wchar(
+        filename: *const wchar_t,
         filetype: TagLib_FileType,
     ) -> *mut TagLib_File;
     pub fn taglib_file_is_valid(file: *mut TagLib_File) -> TagLib_Bool;

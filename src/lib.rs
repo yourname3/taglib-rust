@@ -242,6 +242,24 @@ impl Drop for File {
 impl File {
     /// Creates a new `taglib::File` for the given `filename`.
     pub fn new<P: AsRef<Path>>(path: P) -> Result<File, FileError> {
+        #[cfg(target_os = "windows")]
+        {
+            
+            use std::os::windows::ffi::OsStrExt;
+            let filename = path.as_ref().to_path_buf();
+            let wide = filename.as_os_str().encode_wide();
+            let mut wide: Vec<_> = wide.collect();
+            wide.push(0); // Null terminate.
+            let f = unsafe { ll::taglib_file_new_wchar(wide.as_ptr()) };
+            if f.is_null() {
+                return Err(FileError::InvalidFile);
+            }
+
+            return Ok(File { raw: f });
+        }
+
+        #[cfg_attr(target_os = "windows", allow(unreachable_code))]
+
         let filename = path.as_ref().to_str().ok_or(FileError::InvalidFileName)?;
         let filename_c = CString::new(filename).ok().ok_or(FileError::InvalidFileName)?;
         let filename_c_ptr = filename_c.as_ptr();
@@ -256,13 +274,28 @@ impl File {
 
     /// Creates a new `taglib::File` for the given `filename` and type of file.
     pub fn new_type(filename: &str, filetype: FileType) -> Result<File, FileError> {
-        let filename_c = match CString::new(filename) {
-            Ok(s) => s,
-            _ => return Err(FileError::InvalidFileName),
+        #[cfg(target_os = "windows")]
+        let f = {
+            use std::os::windows::ffi::OsStrExt;
+            use std::ffi::OsStr;
+
+            let str = OsStr::new(filename);
+            let wide = str.encode_wide();
+            let mut wide: Vec<_> = wide.collect();
+            wide.push(0); // Null terminate.
+            unsafe { ll::taglib_file_new_type_wchar(wide.as_ptr(), filetype as u32) }
         };
 
-        let filename_c_ptr = filename_c.as_ptr();
-        let f = unsafe { ll::taglib_file_new_type(filename_c_ptr, filetype as u32) };
+        #[cfg(not(target_os = "windows"))]
+        let f = {
+            let filename_c = match CString::new(filename) {
+                Ok(s) => s,
+                _ => return Err(FileError::InvalidFileName),
+            };
+
+            let filename_c_ptr = filename_c.as_ptr();
+            unsafe { ll::taglib_file_new_type(filename_c_ptr, filetype as u32) }
+        };
         if f.is_null() {
             return Err(FileError::InvalidFile);
         }
