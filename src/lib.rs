@@ -239,18 +239,23 @@ impl Drop for File {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn path_to_vec_wchar<P: AsRef<Path>>(path: P) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    let as_os_str = path.as_ref().as_os_str();
+    
+    as_os_str.encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
 impl File {
     /// Creates a new `taglib::File` for the given `filename`.
     pub fn new<P: AsRef<Path>>(path: P) -> Result<File, FileError> {
         #[cfg(target_os = "windows")]
         {
-            
-            use std::os::windows::ffi::OsStrExt;
-            let filename = path.as_ref().to_path_buf();
-            let wide = filename.as_os_str().encode_wide();
-            let mut wide: Vec<_> = wide.collect();
-            wide.push(0); // Null terminate.
-            let f = unsafe { ll::taglib_file_new_wchar(wide.as_ptr()) };
+            let wchar = path_to_vec_wchar(path);
+            let f = unsafe { ll::taglib_file_new_wchar(wchar.as_ptr()) };
             if f.is_null() {
                 return Err(FileError::InvalidFile);
             }
@@ -276,14 +281,8 @@ impl File {
     pub fn new_type(filename: &str, filetype: FileType) -> Result<File, FileError> {
         #[cfg(target_os = "windows")]
         let f = {
-            use std::os::windows::ffi::OsStrExt;
-            use std::ffi::OsStr;
-
-            let str = OsStr::new(filename);
-            let wide = str.encode_wide();
-            let mut wide: Vec<_> = wide.collect();
-            wide.push(0); // Null terminate.
-            unsafe { ll::taglib_file_new_type_wchar(wide.as_ptr(), filetype as u32) }
+            let wchar = path_to_vec_wchar(filename);
+            unsafe { ll::taglib_file_new_type_wchar(wchar.as_ptr(), filetype as u32) }
         };
 
         #[cfg(not(target_os = "windows"))]
