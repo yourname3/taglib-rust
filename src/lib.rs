@@ -269,7 +269,7 @@ fn path_to_cstring<P: AsRef<Path>>(path: P) -> Result<CString, FileError> {
 /// 
 /// HOWEVER! This will NOT work correctly if the internal path encoding on 
 /// that system is NOT actually UTF-8! Beware!
-#[cfg(not(unix))]
+#[cfg(all(not(unix), not(windows)))]
 fn path_to_cstring<P: AsRef<Path>>(path: P) -> Result<CString, FileError> {
     let filename = path.as_ref().to_str().ok_or(FileError::InvalidFileName)?;
     CString::new(filename).ok().ok_or(FileError::InvalidFileName)
@@ -277,17 +277,17 @@ fn path_to_cstring<P: AsRef<Path>>(path: P) -> Result<CString, FileError> {
 
 impl File {
     /// Creates a new `taglib::File` for the given `filename`.
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<File, FileError> {
+    pub fn new<P: AsRef<Path>>(filename: P) -> Result<File, FileError> {
         let f = {
             #[cfg(windows)]
             {
-                let wchar = path_to_vec_wchar(path);
+                let wchar = path_to_vec_wchar(filename);
                 unsafe { ll::taglib_file_new_wchar(wchar.as_ptr()) }
             }
 
             #[cfg(not(windows))]
             {
-                let filename_c = path_to_cstring(path)?;
+                let filename_c = path_to_cstring(filename)?;
                 unsafe { ll::taglib_file_new(filename_c.as_ptr()) }
             }
         };
@@ -300,23 +300,23 @@ impl File {
     }
 
     /// Creates a new `taglib::File` for the given `filename` and type of file.
-    pub fn new_type(filename: &str, filetype: FileType) -> Result<File, FileError> {
-        #[cfg(target_os = "windows")]
+    pub fn new_type<P: AsRef<Path>>(filename: P, filetype: FileType) -> Result<File, FileError> {
+        // Convert filetype for ABI.
+        let filetype = filetype as u32;
         let f = {
-            let wchar = path_to_vec_wchar(filename);
-            unsafe { ll::taglib_file_new_type_wchar(wchar.as_ptr(), filetype as u32) }
+            #[cfg(windows)]
+            {
+                let wchar = path_to_vec_wchar(filename);
+                unsafe { ll::taglib_file_new_type_wchar(wchar.as_ptr(), filetype) }
+            }
+
+            #[cfg(not(windows))]
+            {
+                let filename_c = path_to_cstring(filename)?;
+                unsafe { ll::taglib_file_new_type(filename_c.as_ptr(), filetype) }
+            }
         };
 
-        #[cfg(not(target_os = "windows"))]
-        let f = {
-            let filename_c = match CString::new(filename) {
-                Ok(s) => s,
-                _ => return Err(FileError::InvalidFileName),
-            };
-
-            let filename_c_ptr = filename_c.as_ptr();
-            unsafe { ll::taglib_file_new_type(filename_c_ptr, filetype as u32) }
-        };
         if f.is_null() {
             return Err(FileError::InvalidFile);
         }
