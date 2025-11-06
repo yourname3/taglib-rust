@@ -278,20 +278,20 @@ fn path_to_cstring<P: AsRef<Path>>(path: P) -> Result<CString, FileError> {
 impl File {
     /// Creates a new `taglib::File` for the given `filename`.
     pub fn new<P: AsRef<Path>>(path: P) -> Result<File, FileError> {
-        #[cfg(target_os = "windows")]
-        {
-            let wchar = path_to_vec_wchar(path);
-            let f = unsafe { ll::taglib_file_new_wchar(wchar.as_ptr()) };
-            if f.is_null() {
-                return Err(FileError::InvalidFile);
+        let f = {
+            #[cfg(windows)]
+            {
+                let wchar = path_to_vec_wchar(path);
+                unsafe { ll::taglib_file_new_wchar(wchar.as_ptr()) }
             }
 
-            return Ok(File { raw: f });
-        }
-
-        let filename_c = path_to_cstring(path)?;
-
-        let f = unsafe { ll::taglib_file_new(filename_c.as_ptr()) };
+            #[cfg(not(windows))]
+            {
+                let filename_c = path_to_cstring(path)?;
+                unsafe { ll::taglib_file_new(filename_c.as_ptr()) }
+            }
+        };
+        
         if f.is_null() {
             return Err(FileError::InvalidFile);
         }
