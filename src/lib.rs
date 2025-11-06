@@ -242,13 +242,23 @@ impl Drop for File {
 /// On Windows, we need to convert the paths into wchar_t*, essentially, and
 /// use the matching APIs.
 #[cfg(target_os = "windows")]
-fn path_to_vec_wchar<P: AsRef<Path>>(path: P) -> Vec<u16> {
+fn path_to_vec_wchar<P: AsRef<Path>>(path: P) -> Result<Vec<u16>, FileError> {
     use std::os::windows::ffi::OsStrExt;
     let as_os_str = path.as_ref().as_os_str();
     
-    as_os_str.encode_wide()
+    let wchar: Vec<_> = as_os_str.encode_wide()
         .chain(std::iter::once(0))
-        .collect()
+        .collect();
+
+    // For the filename to be valid, it must not have any internal 0s (i.e. any
+    // internal nul-terminators).
+    for encoded in &wchar[0..wchar.len() - 1] {
+        if *encoded == 0 {
+            return Err(FileError::InvalidFileName);
+        }
+    }
+
+    Ok(wchar)
 }
 
 /// On Unix platforms, converting a Path to a CString can be done simply by
@@ -281,7 +291,7 @@ impl File {
         let f = {
             #[cfg(windows)]
             {
-                let wchar = path_to_vec_wchar(filename);
+                let wchar = path_to_vec_wchar(filename)?;
                 unsafe { ll::taglib_file_new_wchar(wchar.as_ptr()) }
             }
 
@@ -306,7 +316,7 @@ impl File {
         let f = {
             #[cfg(windows)]
             {
-                let wchar = path_to_vec_wchar(filename);
+                let wchar = path_to_vec_wchar(filename)?;
                 unsafe { ll::taglib_file_new_type_wchar(wchar.as_ptr(), filetype) }
             }
 
