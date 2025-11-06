@@ -239,6 +239,8 @@ impl Drop for File {
     }
 }
 
+/// On Windows, we need to convert the paths into wchar_t*, essentially, and
+/// use the matching APIs.
 #[cfg(target_os = "windows")]
 fn path_to_vec_wchar<P: AsRef<Path>>(path: P) -> Vec<u16> {
     use std::os::windows::ffi::OsStrExt;
@@ -247,6 +249,30 @@ fn path_to_vec_wchar<P: AsRef<Path>>(path: P) -> Vec<u16> {
     as_os_str.encode_wide()
         .chain(std::iter::once(0))
         .collect()
+}
+
+/// On Unix platforms, converting a Path to a CString can be done simply by
+/// using the as_bytes() method from OsStrExt.
+/// 
+/// Returns a FileError if the path contains an internal NUL.
+#[cfg(unix)]
+fn path_to_cstring<P: AsRef<Path>>(path: P) -> Result<CString, FileError> {
+    use std::os::unix::ffi::OsStrExt;
+    CString::new(path.as_ref().as_os_str().as_bytes())
+        .map_err(|_| FileError::InvalidFileName)
+}
+
+/// On non-Windows, non-Unix platforms, it's unclear what exactly the byte 
+/// encoding should be. We will assume it is UTF-8 as a common denominator,
+/// and attempt to get a valid UTF-8 string out of the input, returning
+/// FileError::InvalidFileName if it is not UTF-8.
+/// 
+/// HOWEVER! This will NOT work correctly if the internal path encoding on 
+/// that system is NOT actually UTF-8! Beware!
+#[cfg(not(unix))]
+fn path_to_cstring<P: AsRef<Path>>(path: P) -> Result<CString, FileError> {
+    let filename = path.as_ref().to_str().ok_or(FileError::InvalidFileName)?;
+    CString::new(filename).ok().ok_or(FileError::InvalidFileName)
 }
 
 impl File {
@@ -263,13 +289,9 @@ impl File {
             return Ok(File { raw: f });
         }
 
-        #[cfg_attr(target_os = "windows", allow(unreachable_code))]
+        let filename_c = path_to_cstring(path)?;
 
-        let filename = path.as_ref().to_str().ok_or(FileError::InvalidFileName)?;
-        let filename_c = CString::new(filename).ok().ok_or(FileError::InvalidFileName)?;
-        let filename_c_ptr = filename_c.as_ptr();
-
-        let f = unsafe { ll::taglib_file_new(filename_c_ptr) };
+        let f = unsafe { ll::taglib_file_new(filename_c.as_ptr()) };
         if f.is_null() {
             return Err(FileError::InvalidFile);
         }
